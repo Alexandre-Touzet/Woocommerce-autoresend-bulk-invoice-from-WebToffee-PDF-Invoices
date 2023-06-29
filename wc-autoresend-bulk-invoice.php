@@ -89,12 +89,6 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                         </td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row">Email Body</th>
-                        <td>
-                            <textarea name="wc_auto_resend_invoices_email_body"><?php echo esc_textarea(get_option('wc_auto_resend_invoices_email_body', 'Please find attached your invoices.')); ?></textarea>
-                        </td>
-                    </tr>
-                     <tr valign="top">
                     <th scope="row">Email Body</th>
                     <td>
                         <?php
@@ -110,6 +104,20 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                         ?>
                     </td>
                 </tr>
+                    <tr valign="top">
+                        <th scope="row">Order Status</th>
+                        <td>
+                            <select name="wc_auto_resend_invoices_order_status">
+                                <?php
+                                $order_statuses = wc_get_order_statuses();
+                                $selected_order_status = get_option('wc_auto_resend_invoices_order_status', 'completed');
+                                foreach ($order_statuses as $status => $label) {
+                                    echo '<option value="' . $status . '"' . selected($selected_order_status, $status, false) . '>' . $label . '</option>';
+                                }
+                                ?>
+                            </select>
+                        </td>
+                    </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
@@ -178,8 +186,10 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                     'From: ' . $sender_name . ' <' . $sender_email . '>',
                     'Content-Type: text/html; charset=UTF-8',
                 );
-
+                // Use wp_mail() with modified headers for HTML content
+                add_filter('wp_mail_content_type', 'set_html_content_type');
                 wp_mail($specific_customer_email, $email_subject, $email_body, $headers, $attachments);
+                remove_filter('wp_mail_content_type', 'set_html_content_type');
 
                 // Delete the merged invoice file
                 if (file_exists($merged_invoice_path)) {
