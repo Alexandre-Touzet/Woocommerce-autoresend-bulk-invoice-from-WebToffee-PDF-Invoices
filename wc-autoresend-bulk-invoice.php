@@ -94,20 +94,22 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                             <textarea name="wc_auto_resend_invoices_email_body"><?php echo esc_textarea(get_option('wc_auto_resend_invoices_email_body', 'Please find attached your invoices.')); ?></textarea>
                         </td>
                     </tr>
-                    <tr valign="top">
-                        <th scope="row">Order Status</th>
-                        <td>
-                            <select name="wc_auto_resend_invoices_order_status">
-                                <?php
-                                $order_statuses = wc_get_order_statuses();
-                                $selected_order_status = get_option('wc_auto_resend_invoices_order_status', 'completed');
-                                foreach ($order_statuses as $status => $label) {
-                                    echo '<option value="' . $status . '"' . selected($selected_order_status, $status, false) . '>' . $label . '</option>';
-                                }
-                                ?>
-                            </select>
-                        </td>
-                    </tr>
+                     <tr valign="top">
+                    <th scope="row">Email Body</th>
+                    <td>
+                        <?php
+                        $email_body = get_option('wc_auto_resend_invoices_email_body', 'Please find attached your invoices.');
+                        $editor_id = 'wc_auto_resend_invoices_email_body';
+                        $settings = array(
+                            'textarea_name' => 'wc_auto_resend_invoices_email_body',
+                            'textarea_rows' => 5,
+                            'teeny'         => true,
+                            'media_buttons' => false,
+                        );
+                        wp_editor($email_body, $editor_id, $settings);
+                        ?>
+                    </td>
+                </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
