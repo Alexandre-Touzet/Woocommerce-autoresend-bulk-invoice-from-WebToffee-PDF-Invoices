@@ -12,6 +12,9 @@ License URI: http://www.gnu.org/licenses/gpl-2.0.txt
 if (!defined('ABSPATH')) {
     exit;
 }
+function set_html_content_type() {
+    return 'text/html';
+}
 
 if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_option('active_plugins')))) {
 
