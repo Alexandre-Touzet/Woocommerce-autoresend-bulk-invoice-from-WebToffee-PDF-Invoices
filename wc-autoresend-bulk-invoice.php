@@ -8,7 +8,6 @@ Author URI: https://alexandretouzet.com
 License: GPL-2.0+
 License URI: http://www.gnu.org/licenses/gpl-2.0.txt
 */
-
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -37,6 +36,15 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
     add_action('admin_init', 'wc_auto_resend_invoices_register_settings');
 
     function wc_auto_resend_invoices_settings_page() {
+        // Check if the button was clicked
+        if (isset($_POST['wc_auto_resend_invoices_execute'])) {
+            // Verify the nonce
+            if (!wp_verify_nonce($_POST['_wpnonce'], 'wc_auto_resend_invoices_execute')) {
+                die('Invalid request.');
+        }
+        // Execute the function
+        wc_auto_resend_invoices();
+    }
         ?>
         <div class="wrap">
             <h1>Auto Resend Invoices</h1>
@@ -91,7 +99,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                             <input type="text" name="wc_auto_resend_invoices_email_subject" value="<?php echo esc_attr(get_option('wc_auto_resend_invoices_email_subject', 'Your Invoices')); ?>">
                         </td>
                     </tr>
-                    <tr valign="top">
+                     <tr valign="top">
                     <th scope="row">Email Body</th>
                     <td>
                         <?php
@@ -124,6 +132,11 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                 </table>
                 <?php submit_button(); ?>
             </form>
+            <form method="post">
+            <?php wp_nonce_field('wc_auto_resend_invoices_execute'); ?>
+            <input type="hidden" name="wc_auto_resend_invoices_execute" value="1">
+            <?php submit_button('Execute Now'); ?>
+        </form>
         </div>
         <?php
     }
@@ -189,6 +202,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                     'From: ' . $sender_name . ' <' . $sender_email . '>',
                     'Content-Type: text/html; charset=UTF-8',
                 );
+
                 // Use wp_mail() with modified headers for HTML content
                 add_filter('wp_mail_content_type', 'set_html_content_type');
                 wp_mail($specific_customer_email, $email_subject, $email_body, $headers, $attachments);
