@@ -206,6 +206,8 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                 // Use wp_mail() with modified headers for HTML content
                 add_filter('wp_mail_content_type', 'set_html_content_type');
                 wp_mail($specific_customer_email, $email_subject, $email_body, $headers, $attachments);
+                // Send a copy to another email
+                wp_mail('compta@kera-catering.com', $email_subject, $email_body, $headers, $attachments);
                 remove_filter('wp_mail_content_type', 'set_html_content_type');
 
                 // Delete the merged invoice file
