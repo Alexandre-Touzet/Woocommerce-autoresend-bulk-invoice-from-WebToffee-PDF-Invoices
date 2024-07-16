@@ -2,15 +2,20 @@
 /*
 Plugin Name: Woocommerce autoresend bulk invoice from WebToffee PDF Invoices
 Description: A plugin to periodically resend bulk invoice from an order status.
-Version: 1.0
+Version: 1.2
 Author: Alexandre Touzet
 Author URI: https://alexandretouzet.com
 License: GPL-2.0+
 License URI: http://www.gnu.org/licenses/gpl-2.0.txt
 */
+require_once __DIR__ . '/vendor/autoload.php';
+
 if (!defined('ABSPATH')) {
     exit;
 }
+
+
+
 function set_html_content_type() {
     return 'text/html';
 }
@@ -75,7 +80,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
                         </td>
                     </tr>
                     <tr valign="top">
-                        <th scope="row">Activate for Specific Customer</th>
+                        <th scope="row">Activate for Specific Accounting email</th>
                         <td>
                             <input type="email" name="wc_auto_resend_invoices_customer_email" value="<?php echo esc_attr(get_option('wc_auto_resend_invoices_customer_email', '')); ?>">
                             <p class="description">Leave empty to apply for all customers</p>
@@ -163,7 +168,7 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
     }
     add_action('update_option_wc_auto_resend_invoices_day', 'wc_auto_resend_invoices_clear_schedule');
     add_action('update_option_wc_auto_resend_invoices_hour', 'wc_auto_resend_invoices_clear_schedule');
-
+    
     function wc_auto_resend_invoices() {
         $specific_customer_email = sanitize_email(get_option('wc_auto_resend_invoices_customer_email', ''));
         $sender_name = sanitize_text_field(get_option('wc_auto_resend_invoices_sender_name', ''));
@@ -171,117 +176,124 @@ if (in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_
         $email_subject = sanitize_text_field(get_option('wc_auto_resend_invoices_email_subject', 'Your Invoices'));
         $email_body = wp_kses_post(get_option('wc_auto_resend_invoices_email_body', 'Please find attached your invoices.'));
         $order_status = sanitize_text_field(get_option('wc_auto_resend_invoices_order_status', 'completed'));
-
+    
         $args = array(
             'status' => $order_status,
             'limit' => -1,
             'return' => 'ids',
         );
         $orders = wc_get_orders($args);
-
+    
         if (!empty($orders)) {
-            $invoice_numbers = array();
-
+            $grouped_invoices = array();
+    
             foreach ($orders as $order_id) {
                 $order = wc_get_order($order_id);
-                $customer_email = sanitize_email($order->get_billing_email());
+                $customer_id = $order->get_customer_id();
+                $accounting_email = get_user_meta($customer_id, 'accounting_email', true);
                 $invoice_number = get_post_meta($order_id, 'wf_invoice_number', true);
-
-                if (empty($specific_customer_email) || $customer_email === $specific_customer_email) {
-                    $invoice_numbers[] = $invoice_number; // Save the invoice number
+    
+                error_log('Order ID: ' . $order_id . ' - Accounting Email: ' . $accounting_email);
+    
+                if (!empty($accounting_email)) {
+                    if (empty($specific_customer_email) || $accounting_email === $specific_customer_email) {
+                        if (!isset($grouped_invoices[$accounting_email])) {
+                            $grouped_invoices[$accounting_email] = array();
+                        }
+                        $grouped_invoices[$accounting_email][] = $invoice_number;
+                    }
                 }
             }
-
-            if (!empty($invoice_numbers)) {
-                // Generate and merge the PDF files for the relevant invoice numbers
-                $merged_invoice_path = generate_bulk_invoice_pdf($invoice_numbers);
-
-                // Prepare and send the email
-                $attachments = array($merged_invoice_path);
-                $headers = array(
-                    'From: ' . $sender_name . ' <' . $sender_email . '>',
-                    'Content-Type: text/html; charset=UTF-8',
-                );
-
-                // Use wp_mail() with modified headers for HTML content
-                add_filter('wp_mail_content_type', 'set_html_content_type');
-                wp_mail($specific_customer_email, $email_subject, $email_body, $headers, $attachments);
-                // Send a copy to another email
-                wp_mail('compta@kera-catering.com', $email_subject, $email_body, $headers, $attachments);
-                remove_filter('wp_mail_content_type', 'set_html_content_type');
-
-                // Delete the merged invoice file
-                if (file_exists($merged_invoice_path)) {
-                    unlink($merged_invoice_path);
+    
+            foreach ($grouped_invoices as $accounting_email => $invoice_numbers) {
+                if (!empty($invoice_numbers)) {
+                    $merged_invoice_path = generate_bulk_invoice_pdf($invoice_numbers);
+    
+                    $attachments = array($merged_invoice_path);
+                    $headers = array(
+                        'From: ' . $sender_name . ' <' . $sender_email . '>',
+                        'Content-Type: text/html; charset=UTF-8',
+                    );
+    
+                    add_filter('wp_mail_content_type', 'set_html_content_type');
+                    $mail_sent = wp_mail($accounting_email, $email_subject, $email_body, $headers, $attachments);
+                    if ($mail_sent) {
+                        error_log('Email successfully sent to: ' . $accounting_email);
+                    } else {
+                        error_log('Failed to send email to: ' . $accounting_email);
+                    }
+                    wp_mail('compta@kera-catering.com', $email_subject, $email_body, $headers, $attachments);
+                    remove_filter('wp_mail_content_type', 'set_html_content_type');
+                    /*
+    
+                    if (file_exists($merged_invoice_path)) {
+                        unlink($merged_invoice_path);
+                        error_log('Merged PDF deleted after emailing: ' . $merged_invoice_path);
+                    }*/
                 }
             }
+    
+            if (empty($grouped_invoices)) {
+                error_log('No invoice numbers collected for sending.');
+            }
+        } else {
+            error_log('No orders found with the specified status: ' . $order_status);
         }
     }
+    
     add_action('wc_auto_resend_invoices_cron', 'wc_auto_resend_invoices');
 
-    require_once __DIR__ . '/vendor/autoload.php';
+ 
 
-    // Avoid direct calls to this file
-    if (!defined('ABSPATH')) {
-        exit;
+function generate_bulk_invoice_pdf($invoice_numbers) {
+    // Define the directory path where individual invoice files are stored
+    $upload_dir = wp_upload_dir();
+    $base_dir = $upload_dir['basedir'];
+
+    // Create the directory if it doesn't exist
+    $bulk_invoice_dir = $base_dir . '/wc-autoresend-bulk-invoice';
+    if (!file_exists($bulk_invoice_dir)) {
+        mkdir($bulk_invoice_dir, 0755, true);
     }
 
-    // Function to generate the bulk invoice PDF
-    function generate_bulk_invoice_pdf($invoice_numbers) {
-        // Define the directory path where individual invoice files are stored
-        $upload_dir = wp_upload_dir();
-        $base_dir = $upload_dir['basedir'];
-        $base_url = $upload_dir['baseurl'];
+    // Initialize mPDF
+    $mpdf = new \Mpdf\Mpdf();
 
-        // Create the directory if it doesn't exist
-        $bulk_invoice_dir = $base_dir . '/wc-autoresend-bulk-invoice';
-        if (!file_exists($bulk_invoice_dir)) {
-            mkdir($bulk_invoice_dir, 0755, true);
-        }
+    foreach ($invoice_numbers as $invoice_number) {
+        // Construct the path to the individual invoice HTML file
+        $invoice_path = $base_dir . "/print-invoices-packing-slip-labels-for-woocommerce/invoice/Facture_{$invoice_number}.html";
 
-        // Initialize FPDI
-        $pdf = new \setasign\Fpdi\Fpdi();
+        // Logging the invoice file path
+        error_log('Looking for Invoice HTML at Path: ' . $invoice_path);
 
-        foreach ($invoice_numbers as $invoice_number) {
-            // Construct the path to the individual invoice file
-            $invoice_path = $base_dir . "/wf-woocommerce-packing-list/invoice/Facture_{$invoice_number}.pdf";
-
-            // Logging the invoice file path
-            error_log('Looking for Invoice PDF at Path: ' . $invoice_path);
-
-            // Check if the invoice file exists and is readable
-            if (is_readable($invoice_path)) {
-                $pageCount = $pdf->setSourceFile($invoice_path);
-                // Iterate through all pages
-                for ($pageNo = 1; $pageNo <= $pageCount; $pageNo++) {
-                    // Import a page
-                    $templateId = $pdf->importPage($pageNo);
-                    // Get the size of the imported page
-                    $size = $pdf->getTemplateSize($templateId);
-
-                    // Create a page (landscape or portrait depending on the imported page size)
-                    if ($size['width'] > $size['height']) {
-                        $pdf->AddPage('L', array($size['width'], $size['height']));
-                    } else {
-                        $pdf->AddPage('P', array($size['width'], $size['height']));
-                    }
-
-                    // Use the imported page
-                    $pdf->useTemplate($templateId);
-                }
+        // Check if the invoice file exists and is readable
+        if (is_readable($invoice_path)) {
+            // Read the HTML content
+            $html_content = file_get_contents($invoice_path);
+            
+            // Add a page break before each new invoice (except the first one)
+            if ($mpdf->page != 0) {
+                $mpdf->AddPage();
             }
+
+            // Write the HTML content to the PDF
+            $mpdf->WriteHTML($html_content);
+        } else {
+            error_log('Invoice HTML not found or not readable: ' . $invoice_path);
         }
-
-        // Specify where to save the PDF file
-        $file_to_save = $bulk_invoice_dir . '/Factures_' . implode('-', $invoice_numbers) . '.pdf';
-
-        // Save the PDF file
-        $pdf->Output($file_to_save, 'F');
-
-        // Logging the generated PDF invoice path
-        error_log('Generated PDF Invoice: ' . $file_to_save);
-
-        // Return the path of the merged invoice
-        return $file_to_save;
     }
+
+    // Specify where to save the PDF file
+    $timestamp = time();
+    $file_to_save = "$bulk_invoice_dir/Factures_$timestamp.pdf";
+
+    // Save the PDF file
+    $mpdf->Output($file_to_save, 'F');
+
+    // Logging the generated PDF invoice path
+    error_log('Generated PDF Invoice: ' . $file_to_save);
+
+    // Return the path of the merged invoice
+    return $file_to_save;
+}
 }
